@@ -1,6 +1,13 @@
+from fastapi import FastAPI
+import uvicorn
+
+
+app = FastAPI()
+
+@app.get("/")
 def main():
-    print("Hello from agent")
+    return {"message": "Hello World"}
 
 
 if __name__ == "__main__":
-    main()
+    uvicorn.run(app, host="0.0.0.0", port=8000)

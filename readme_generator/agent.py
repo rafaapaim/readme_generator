@@ -64,7 +64,7 @@ def update_readme(instructions: list[dict]) -> None:
 
     print(f"README.md atualizado em {readme_path}")
 
-def ler_instructions_from_code() -> list[dict]:
+def read_instructions_from_code() -> list[dict]:
     """
     Lê as instruções do código-fonte para identificar alterações.
 
@@ -118,11 +118,11 @@ def ler_instructions_from_code() -> list[dict]:
 
     return instructions
 
-def escrever_readme_atualizado():
+def write_updated_readme():
     """
     Função principal para gerar e atualizar o README.md com base nas instruções do código.
     """
-    instructions = ler_instructions_from_code()
+    instructions = read_instructions_from_code()
     update_readme(instructions)
 
 
@@ -191,5 +191,5 @@ root_agent = Agent(
         3. Garanta que o conteúdo esteja consistente com o código existente em `src`.
         4. Não altere nenhum outro arquivo do projeto.
         """,
-    tools=[generate_readme, update_readme, ler_instructions_from_code, escrever_readme_atualizado]
+    tools=[generate_readme, update_readme, read_instructions_from_code, write_updated_readme]
 )
