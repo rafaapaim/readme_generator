@@ -1,7 +1,16 @@
 from ast import Import, ImportFrom, AsyncFunctionDef, ClassDef, FunctionDef, iter_child_nodes, parse
 from pathlib import Path
+import tomllib
 
 from google.adk import Agent
+
+
+def extract_imports(instructions: list[dict]) -> list[str]:
+    imports = []
+    for instruction in instructions:
+        if isinstance(instruction, dict) and instruction.get("opname") in {"import", "from-import"}:
+            imports.append(instruction.get("argrepr", ""))
+    return imports
 
 
 def generate_readme(instructions: list[dict]) -> str:
@@ -14,38 +23,79 @@ def generate_readme(instructions: list[dict]) -> str:
     Returns:
         str: Conteúdo atualizado do README.md.
     """
-    def normalize_instruction(item):
-        if isinstance(item, dict):
-            return (
-                item.get("opname") or item.get("name") or item.get("op") or "instruction",
-                item.get("argrepr") or item.get("argval") or item.get("arg") or "",
-            )
-        if isinstance(item, (list, tuple)):
-            opname = item[0] if len(item) > 0 else "instruction"
-            argrepr = item[4] if len(item) > 4 else str(item)
-            return opname, argrepr
-        return str(item), ""
+    imports = extract_imports(instructions)
+    functions = [item for item in instructions if isinstance(item, dict) and item.get("opname") == "define-function"]
 
-    readme_content = "# README.md Atualizado\n\n"
-    readme_content += "## Funcionalidades Implementadas\n"
+    readme_content = "# curso-fullcycle-agentes-ia\n\n"
+    readme_content += "Projeto simples em FastAPI que expõe um endpoint `/` retornando uma mensagem JSON.\n\n"
 
-    for instruction in instructions:
-        opname, argrepr = normalize_instruction(instruction)
-        readme_content += f"- {opname}: {argrepr}\n"
+    readme_content += "## Objetivo\n"
+    readme_content += "Fornecer uma API mínima em FastAPI para servir um endpoint de saudação.\n\n"
 
-    readme_content += "\n## Instruções de Uso\n"
-    readme_content += "1. Clone o repositório.\n"
-    readme_content += "2. Instale as dependências.\n"
-    readme_content += "3. Execute o projeto conforme as instruções específicas.\n"
+    readme_content += "## Principais funcionalidades\n"
+    readme_content += "- Endpoint HTTP GET em `/`\n"
+    readme_content += "- Retorna um JSON com a chave `message`\n"
+    if functions:
+        readme_content += "- Funções analisadas no código:\n"
+        for function in functions:
+            readme_content += f"  - {function.get('argrepr')}\n"
+    readme_content += "\n"
 
-    readme_content += "\n## Dependências\n"
-    readme_content += "- Python 3.x\n"
-    readme_content += "- Bibliotecas necessárias (ver requirements.txt)\n"
+    readme_content += "## Tecnologias e dependências\n"
+    readme_content += "- Python 3.13+\n"
+    readme_content += "- FastAPI\n"
+    readme_content += "- Uvicorn\n"
+    readme_content += "- google-adk (para o agente de geração de README)\n\n"
 
-    readme_content += "\n## Contribuição\n"
-    readme_content += "Sinta-se à vontade para contribuir com melhorias e correções.\n"
+    readme_content += "## Estrutura do projeto\n"
+    readme_content += "- `src/main.py`: aplicação FastAPI\n"
+    readme_content += "- `readme_generator/agent.py`: agente que lê o código e gera o README\n"
+    readme_content += "- `README.md`: documentação principal do projeto\n\n"
+
+    readme_content += "## Pré-requisitos\n"
+    readme_content += "- Python 3.13 ou superior instalado\n"
+    readme_content += "- ambiente virtual configurado\n\n"
+
+    readme_content += "## Instalação\n"
+    readme_content += "```bash\n"
+    readme_content += "python -m venv .venv\n"
+    readme_content += "source .venv/bin/activate  # Linux/macOS\n"
+    readme_content += ".venv\\Scripts\\activate  # Windows\n"
+    readme_content += "pip install -r src/requirements.txt\n"
+    readme_content += "```\n\n"
+
+    readme_content += "## Execução\n"
+    readme_content += "```bash\n"
+    readme_content += "uvicorn src.main:app --reload --host 0.0.0.0 --port 8000\n"
+    readme_content += "```\n\n"
+
+    readme_content += "## Uso\n"
+    readme_content += "Acesse `http://localhost:8000/` no navegador ou via curl para ver a resposta JSON.\n\n"
+
+    readme_content += "## Dependências atuais\n"
+    for package in sorted(get_project_dependencies()):
+        readme_content += f"- {package}\n"
+    readme_content += "\n"
+
+    readme_content += "## Contribuição\n"
+    readme_content += "Contribuições são bem-vindas. Abra issues ou pull requests para melhorias.\n"
 
     return readme_content
+
+
+def get_project_dependencies() -> list[str]:
+    repo_root = Path(__file__).resolve().parent.parent
+    pyproject_path = repo_root / "pyproject.toml"
+    if not pyproject_path.exists():
+        return ["Python 3.x", "FastAPI", "Uvicorn"]
+
+    try:
+        with open(pyproject_path, "rb") as f:
+            project = tomllib.load(f)
+        deps = project.get("project", {}).get("dependencies", [])
+        return [str(dep) for dep in deps]
+    except Exception:
+        return ["Python 3.x", "FastAPI", "Uvicorn"]
 
 
 def update_readme(instructions: list[dict]) -> None:
@@ -72,9 +122,10 @@ def read_instructions_from_code() -> list[dict]:
         list[dict]: Lista de instruções que descrevem as alterações no código.
     """
     repo_root = Path(__file__).resolve().parent.parent
+    src_root = repo_root / "src"
     instructions: list[dict] = []
 
-    def add_instruction(opname: str, argrepr: str, lineno: int) -> None:
+    def add_instruction(opname: str, argrepr: str, lineno: int, path: Path) -> None:
         instructions.append(
             {
                 "opname": opname,
@@ -86,7 +137,10 @@ def read_instructions_from_code() -> list[dict]:
 
     ignore_dirs = {".venv", ".git", "__pycache__"}
 
-    for path in repo_root.rglob("*.py"):
+    if not src_root.exists():
+        return instructions
+
+    for path in src_root.rglob("*.py"):
         if any(part in ignore_dirs for part in path.parts):
             continue
 
@@ -101,20 +155,20 @@ def read_instructions_from_code() -> list[dict]:
                 for alias in node.names:
                     name = alias.name
                     alias_text = f" as {alias.asname}" if alias.asname else ""
-                    add_instruction("import", f"import {name}{alias_text}", node.lineno)
+                    add_instruction("import", f"import {name}{alias_text}", node.lineno, path)
             elif isinstance(node, ImportFrom):
                 module = node.module or ""
                 names = ", ".join(
                     alias.name + (f" as {alias.asname}" if alias.asname else "")
                     for alias in node.names
                 )
-                add_instruction("from-import", f"from {module} import {names}", node.lineno)
+                add_instruction("from-import", f"from {module} import {names}", node.lineno, path)
             elif isinstance(node, FunctionDef):
-                add_instruction("define-function", f"def {node.name}(...)", node.lineno)
+                add_instruction("define-function", f"def {node.name}(...)", node.lineno, path)
             elif isinstance(node, AsyncFunctionDef):
-                add_instruction("define-async-function", f"async def {node.name}(...)", node.lineno)
+                add_instruction("define-async-function", f"async def {node.name}(...)", node.lineno, path)
             elif isinstance(node, ClassDef):
-                add_instruction("define-class", f"class {node.name}(...)", node.lineno)
+                add_instruction("define-class", f"class {node.name}(...)", node.lineno, path)
 
     return instructions
 
