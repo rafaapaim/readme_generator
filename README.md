@@ -1,15 +1,19 @@
 # estudo-agentes-ia
 
-Projeto simples em FastAPI que expõe um endpoint `/` retornando uma mensagem JSON.
+Add your description here
 
-## Objetivo
-Fornecer uma API mínima em FastAPI para servir um endpoint de saudação.
+## Visão geral
+Aplicação FastAPI com 1 endpoint(s) identificados em `src/`.
 
-## Principais funcionalidades
-- Endpoint HTTP GET em `/`
-- Retorna um JSON com a chave `message`
-- Funções analisadas no código:
-  - def main(...)
+## Endpoints detectados
+- `GET /` em `src/main.py` (função `main`)
+
+## Funções detectadas
+- def main(...)
+
+## Imports detectados
+- `from fastapi import FastAPI`
+- `import uvicorn`
 
 ## Tecnologias e dependências
 - Python 3.13+
@@ -18,13 +22,13 @@ Fornecer uma API mínima em FastAPI para servir um endpoint de saudação.
 - google-adk (para o agente de geração de README)
 
 ## Estrutura do projeto
-- `src/main.py`: aplicação FastAPI
-- `readme_generator/agent.py`: agente que lê o código e gera o README
-- `README.md`: documentação principal do projeto
+- `src/main.py`
+- `readme_generator/agent.py`
+- `README.md`
 
 ## Pré-requisitos
-- Python 3.13 ou superior instalado
-- ambiente virtual configurado
+- Python 3.13+ instalado
+- Ambiente virtual recomendado
 
 ## Instalação
 ```bash
@@ -40,7 +44,8 @@ uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ## Uso
-Acesse `http://localhost:8000/` no navegador ou via curl para ver a resposta JSON.
+Use os endpoints listados acima para testar a API localmente.
+Por exemplo, acesse `http://localhost:8000/` no navegador ou via curl.
 
 ## Dependências atuais
 - google-adk===2.2.0

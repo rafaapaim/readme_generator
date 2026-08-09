@@ -1,8 +1,71 @@
+import ast
 from ast import Import, ImportFrom, AsyncFunctionDef, ClassDef, FunctionDef, iter_child_nodes, parse
 from pathlib import Path
 import tomllib
 
 from google.adk import Agent
+
+
+def get_pyproject_metadata() -> dict[str, str]:
+    repo_root = Path(__file__).resolve().parent.parent
+    pyproject_path = repo_root / "pyproject.toml"
+    if not pyproject_path.exists():
+        return {}
+
+    try:
+        with open(pyproject_path, "rb") as f:
+            project = tomllib.load(f).get("project", {})
+        return {
+            "name": str(project.get("name", "")),
+            "description": str(project.get("description", "")),
+        }
+    except Exception:
+        return {}
+
+
+def get_project_name() -> str:
+    metadata = get_pyproject_metadata()
+    if metadata.get("name"):
+        return metadata["name"]
+    return Path(__file__).resolve().parent.parent.name
+
+
+def get_project_description() -> str:
+    metadata = get_pyproject_metadata()
+    if metadata.get("description"):
+        return metadata["description"]
+    return "Aplicação simples em FastAPI gerada a partir do código em `src/`."
+
+
+def get_python_requires() -> str:
+    repo_root = Path(__file__).resolve().parent.parent
+    pyproject_path = repo_root / "pyproject.toml"
+    if not pyproject_path.exists():
+        return "Python 3.x"
+
+    try:
+        with open(pyproject_path, "rb") as f:
+            project = tomllib.load(f).get("project", {})
+        requires = project.get("requires-python") or project.get("python_requires")
+        return str(requires) if requires else "Python 3.x"
+    except Exception:
+        return "Python 3.x"
+
+
+def format_python_requires(requirement: str) -> str:
+    if requirement.startswith(">="):
+        return requirement.replace(">=", "Python ") + "+"
+    if requirement.startswith("=="):
+        return requirement.replace("==", "Python ")
+    return requirement
+
+
+def has_fastapi(imports: list[str]) -> bool:
+    return any("fastapi" in item.lower() for item in imports)
+
+
+def has_uvicorn(imports: list[str]) -> bool:
+    return any("uvicorn" in item.lower() for item in imports)
 
 
 def extract_imports(instructions: list[dict]) -> list[str]:
@@ -11,6 +74,50 @@ def extract_imports(instructions: list[dict]) -> list[str]:
         if isinstance(instruction, dict) and instruction.get("opname") in {"import", "from-import"}:
             imports.append(instruction.get("argrepr", ""))
     return imports
+
+
+def extract_fastapi_routes() -> list[dict]:
+    repo_root = Path(__file__).resolve().parent.parent
+    src_root = repo_root / "src"
+    routes: list[dict] = []
+    if not src_root.exists():
+        return routes
+
+    for file_path in src_root.rglob("*.py"):
+        try:
+            source = file_path.read_text(encoding="utf-8")
+            tree = ast.parse(source)
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, FunctionDef):
+                for decorator in node.decorator_list:
+                    if isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute):
+                        if isinstance(decorator.func.value, ast.Name) and decorator.func.value.id == "app":
+                            method = decorator.func.attr.upper()
+                            route_path = None
+                            if decorator.args:
+                                first_arg = decorator.args[0]
+                                if isinstance(first_arg, ast.Constant):
+                                    route_path = first_arg.value
+                                elif isinstance(first_arg, ast.Str):
+                                    route_path = first_arg.s
+                            routes.append({
+                                "method": method,
+                                "path": route_path or "<path não detectado>",
+                                "function": node.name,
+                                "file": str(file_path.relative_to(repo_root)),
+                            })
+    return routes
+
+
+def list_src_files() -> list[str]:
+    repo_root = Path(__file__).resolve().parent.parent
+    src_root = repo_root / "src"
+    if not src_root.exists():
+        return []
+    return [str(path.relative_to(repo_root)) for path in sorted(src_root.rglob("*.py"))]
 
 
 def generate_readme(instructions: list[dict]) -> str:
@@ -25,56 +132,103 @@ def generate_readme(instructions: list[dict]) -> str:
     """
     imports = extract_imports(instructions)
     functions = [item for item in instructions if isinstance(item, dict) and item.get("opname") == "define-function"]
+    routes = extract_fastapi_routes()
+    src_files = list_src_files()
+    project_name = get_project_name()
+    python_requires_raw = get_python_requires()
+    python_requires = format_python_requires(python_requires_raw)
+    project_description = get_project_description()
 
-    readme_content = "# curso-fullcycle-agentes-ia\n\n"
-    readme_content += "Projeto simples em FastAPI que expõe um endpoint `/` retornando uma mensagem JSON.\n\n"
+    uses_fastapi = bool(routes or has_fastapi(imports))
+    uses_uvicorn = has_uvicorn(imports)
 
-    readme_content += "## Objetivo\n"
-    readme_content += "Fornecer uma API mínima em FastAPI para servir um endpoint de saudação.\n\n"
+    readme_content = f"# {project_name}\n\n"
+    readme_content += f"{project_description}\n\n"
 
-    readme_content += "## Principais funcionalidades\n"
-    readme_content += "- Endpoint HTTP GET em `/`\n"
-    readme_content += "- Retorna um JSON com a chave `message`\n"
+    readme_content += "## Visão geral\n"
+    if uses_fastapi and routes:
+        readme_content += f"Aplicação FastAPI com {len(routes)} endpoint(s) identificados em `src/`.\n\n"
+    elif uses_fastapi:
+        readme_content += "Aplicação FastAPI com endpoints definidos no código em `src/`.\n\n"
+    elif functions:
+        readme_content += f"Projeto Python com {len(functions)} função(ões) detectada(s) em `src/`.\n\n"
+    else:
+        readme_content += "Projeto Python com código em `src/`.\n\n"
+
+    if routes:
+        readme_content += "## Endpoints detectados\n"
+        for route in routes:
+            readme_content += f"- `{route['method']} {route['path']}` em `{route['file']}` (função `{route['function']}`)\n"
+        readme_content += "\n"
+
     if functions:
-        readme_content += "- Funções analisadas no código:\n"
+        readme_content += "## Funções detectadas\n"
         for function in functions:
-            readme_content += f"  - {function.get('argrepr')}\n"
-    readme_content += "\n"
+            readme_content += f"- {function.get('argrepr')}\n"
+        readme_content += "\n"
+
+    if imports:
+        readme_content += "## Imports detectados\n"
+        for item in imports:
+            readme_content += f"- `{item}`\n"
+        readme_content += "\n"
 
     readme_content += "## Tecnologias e dependências\n"
-    readme_content += "- Python 3.13+\n"
-    readme_content += "- FastAPI\n"
-    readme_content += "- Uvicorn\n"
+    readme_content += f"- {python_requires}\n"
+    if uses_fastapi:
+        readme_content += "- FastAPI\n"
+    if uses_uvicorn:
+        readme_content += "- Uvicorn\n"
+    if not uses_fastapi and not uses_uvicorn:
+        readme_content += "- Dependências identificadas a partir do código\n"
     readme_content += "- google-adk (para o agente de geração de README)\n\n"
 
     readme_content += "## Estrutura do projeto\n"
-    readme_content += "- `src/main.py`: aplicação FastAPI\n"
-    readme_content += "- `readme_generator/agent.py`: agente que lê o código e gera o README\n"
-    readme_content += "- `README.md`: documentação principal do projeto\n\n"
+    if src_files:
+        for file_path in src_files:
+            readme_content += f"- `{file_path}`\n"
+    else:
+        readme_content += "- Nenhum arquivo `src/*.py` encontrado\n"
+    readme_content += "- `readme_generator/agent.py`\n"
+    readme_content += "- `README.md`\n\n"
 
     readme_content += "## Pré-requisitos\n"
-    readme_content += "- Python 3.13 ou superior instalado\n"
-    readme_content += "- ambiente virtual configurado\n\n"
+    readme_content += f"- {python_requires} instalado\n"
+    readme_content += "- Ambiente virtual recomendado\n\n"
 
     readme_content += "## Instalação\n"
     readme_content += "```bash\n"
     readme_content += "python -m venv .venv\n"
     readme_content += "source .venv/bin/activate  # Linux/macOS\n"
     readme_content += ".venv\\Scripts\\activate  # Windows\n"
-    readme_content += "pip install -r src/requirements.txt\n"
+    if (Path(__file__).resolve().parent.parent / 'src' / 'requirements.txt').exists():
+        readme_content += "pip install -r src/requirements.txt\n"
+    elif (Path(__file__).resolve().parent.parent / 'requirements.txt').exists():
+        readme_content += "pip install -r requirements.txt\n"
+    else:
+        readme_content += "pip install -r requirements.txt  # ajuste conforme seu projeto\n"
     readme_content += "```\n\n"
 
-    readme_content += "## Execução\n"
-    readme_content += "```bash\n"
-    readme_content += "uvicorn src.main:app --reload --host 0.0.0.0 --port 8000\n"
-    readme_content += "```\n\n"
+    if uses_fastapi:
+        readme_content += "## Execução\n"
+        readme_content += "```bash\n"
+        readme_content += "uvicorn src.main:app --reload --host 0.0.0.0 --port 8000\n"
+        readme_content += "```\n\n"
 
     readme_content += "## Uso\n"
-    readme_content += "Acesse `http://localhost:8000/` no navegador ou via curl para ver a resposta JSON.\n\n"
+    if routes:
+        readme_content += "Use os endpoints listados acima para testar a API localmente.\n"
+        readme_content += "Por exemplo, acesse `http://localhost:8000/` no navegador ou via curl.\n\n"
+    else:
+        readme_content += "Execute a aplicação conforme as instruções acima e verifique a saída esperada.\n\n"
 
     readme_content += "## Dependências atuais\n"
-    for package in sorted(get_project_dependencies()):
-        readme_content += f"- {package}\n"
+    dependencies = get_project_dependencies()
+    if dependencies:
+        for package in sorted(dependencies):
+            readme_content += f"- {package}\n"
+    else:
+        readme_content += "- Dependências não identificadas automaticamente\n"
     readme_content += "\n"
 
     readme_content += "## Contribuição\n"
